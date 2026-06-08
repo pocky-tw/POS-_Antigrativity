@@ -1,0 +1,569 @@
+<!DOCTYPE html>
+<html lang="zh-TW" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>晨之美早午餐 POS 系統</title>
+    <!-- Stylesheets -->
+    <link rel="stylesheet" href="css/style.css">
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+
+    <div id="app" v-cloak>
+        <!-- Custom Toast Notifications -->
+        <div class="toast-container">
+            <div v-for="toast in toasts" :key="toast.id" :class="['toast', 'toast-' + toast.type]">
+                <i :class="['toast-icon', 'fa-solid', 
+                    toast.type === 'success' ? 'fa-circle-check' : 
+                    toast.type === 'error' ? 'fa-circle-xmark' : 'fa-circle-info']"></i>
+                <span class="toast-message">{{ toast.message }}</span>
+            </div>
+        </div>
+
+        <!-- Sidebar Navigation -->
+        <aside class="app-sidebar">
+            <div class="brand-section">
+                <div class="brand-logo">
+                    <i class="fa-solid fa-egg"></i>
+                </div>
+                <div class="brand-name">晨之美 POS</div>
+            </div>
+
+            <ul class="nav-menu">
+                <li class="nav-item" :class="{ active: activeTab === 'order' }" @click="activeTab = 'order'">
+                    <i class="fa-solid fa-cash-register"></i>
+                    <span>點餐收銀</span>
+                </li>
+                <li class="nav-item" :class="{ active: activeTab === 'active-orders' }" @click="activeTab = 'active-orders'; fetchActiveOrders();">
+                    <i class="fa-solid fa-utensils"></i>
+                    <span>現場訂單</span>
+                </li>
+                <li class="nav-item" :class="{ active: activeTab === 'history' }" @click="activeTab = 'history'; fetchPastOrders();">
+                    <i class="fa-solid fa-clock-rotate-left"></i>
+                    <span>歷史紀錄</span>
+                </li>
+                <li class="nav-item" :class="{ active: activeTab === 'admin' }" @click="activeTab = 'admin'; resetProductForm();">
+                    <i class="fa-solid fa-sliders"></i>
+                    <span>商品管理</span>
+                </li>
+            </ul>
+
+            <div class="sidebar-footer">
+                <button class="theme-toggle-btn" @click="toggleTheme">
+                    <i :class="['fa-solid', theme === 'light' ? 'fa-moon' : 'fa-sun']"></i>
+                    <span>{{ theme === 'light' ? '夜間模式' : '日間模式' }}</span>
+                </button>
+                <div class="system-clock">
+                    <i class="fa-regular fa-clock"></i>
+                    <span>{{ currentTime }}</span>
+                </div>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="app-main">
+            <!-- Top Header -->
+            <header class="top-header">
+                <h1 class="header-title">
+                    <span v-if="activeTab === 'order'">點餐收銀</span>
+                    <span v-else-if="activeTab === 'active-orders'">現場訂單</span>
+                    <span v-else-if="activeTab === 'history'">歷史紀錄</span>
+                    <span v-else-if="activeTab === 'admin'">商品上架管理</span>
+                </h1>
+                <div class="user-badge">
+                    <div class="user-avatar">
+                        <i class="fa-solid fa-user-tie"></i>
+                    </div>
+                    <span>櫃檯收銀員</span>
+                </div>
+            </header>
+
+            <!-- TAB 1: ORDER PANEL (點餐收銀) -->
+            <div v-if="activeTab === 'order'" class="page-container">
+                <!-- Left: Products Catalog -->
+                <div class="order-left-panel">
+                    <div class="search-filter-row">
+                        <!-- Search Box -->
+                        <div class="search-wrapper">
+                            <i class="fa-solid fa-magnifying-glass"></i>
+                            <input v-model="searchQuery" type="text" class="search-input" placeholder="搜尋商品名稱...">
+                        </div>
+                    </div>
+
+                    <!-- Category Tabs -->
+                    <div class="category-filters">
+                        <button class="category-btn" :class="{ active: selectedCategory === 'all' }" @click="selectedCategory = 'all'">
+                            <i class="fa-solid fa-border-all"></i> 全部
+                        </button>
+                        <button class="category-btn" :class="{ active: selectedCategory === 'burger' }" @click="selectedCategory = 'burger'">
+                            <i class="fa-solid fa-hamburger"></i> 漢堡
+                        </button>
+                        <button class="category-btn" :class="{ active: selectedCategory === 'sandwich' }" @click="selectedCategory = 'sandwich'">
+                            <i class="fa-solid fa-bread-slice"></i> 三明治
+                        </button>
+                        <button class="category-btn" :class="{ active: selectedCategory === 'snack' }" @click="selectedCategory = 'snack'">
+                            <i class="fa-solid fa-cookie"></i> 點心
+                        </button>
+                        <button class="category-btn" :class="{ active: selectedCategory === 'drink' }" @click="selectedCategory = 'drink'">
+                            <i class="fa-solid fa-coffee"></i> 飲品
+                        </button>
+                    </div>
+
+                    <!-- Products Grid -->
+                    <div class="products-scroll">
+                        <div v-if="filteredProducts.length > 0" class="products-grid">
+                            <div v-for="product in filteredProducts" :key="product.id" class="product-card" @click="addToCart(product)">
+                                <div class="product-image-container">
+                                    <img :src="product.image_url || 'assets/coffee.png'" :alt="product.name" class="product-image" onerror="this.src='assets/coffee.png'">
+                                    <span :class="['category-badge', 'badge-' + product.category]">
+                                        {{ getCategoryName(product.category) }}
+                                    </span>
+                                </div>
+                                <div class="product-info">
+                                    <div class="product-title">{{ product.name }}</div>
+                                    <div class="product-price-row">
+                                        <div class="product-price">${{ product.price }}</div>
+                                        <button class="add-to-cart-btn" @click.stop="addToCart(product)">
+                                            <i class="fa-solid fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Empty State -->
+                        <div v-else class="empty-grid-state">
+                            <i class="fa-solid fa-mug-hot"></i>
+                            <p>沒有找到符合條件的商品</p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Right: Cart Sidebar -->
+                <div class="order-right-panel">
+                    <div class="cart-header">
+                        <div class="cart-title-group">
+                            <span class="cart-title">目前點餐</span>
+                            <span class="cart-count-badge">{{ cartItemCount }} 項</span>
+                        </div>
+                        <button v-if="cart.length > 0" class="clear-cart-btn" @click="clearCart">
+                            <i class="fa-solid fa-trash-can"></i> 清空
+                        </button>
+                    </div>
+
+                    <!-- Cart List -->
+                    <div class="cart-items-scroll">
+                        <div v-if="cart.length > 0" class="cart-items-list">
+                            <div v-for="item in cart" :key="item.product_id" class="cart-item">
+                                <img :src="item.image_url || 'assets/coffee.png'" :alt="item.product_name" class="cart-item-img" onerror="this.src='assets/coffee.png'">
+                                <div class="cart-item-details">
+                                    <span class="cart-item-name">{{ item.product_name }}</span>
+                                    <span class="cart-item-price">${{ item.price }}</span>
+                                </div>
+                                <div class="cart-item-controls">
+                                    <div class="quantity-adjust">
+                                        <button class="qty-btn" @click="removeFromCart({id: item.product_id, name: item.product_name})">
+                                            <i class="fa-solid fa-minus"></i>
+                                        </button>
+                                        <input type="text" class="qty-value" :value="item.quantity" @change="updateQuantity(item, $event.target.value)">
+                                        <button class="qty-btn" @click="addToCart({id: item.product_id, name: item.product_name, price: item.price, image_url: item.image_url})">
+                                            <i class="fa-solid fa-plus"></i>
+                                        </button>
+                                    </div>
+                                    <span class="cart-item-subtotal">${{ item.subtotal }}</span>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Empty Cart -->
+                        <div v-else class="cart-empty-state">
+                            <i class="fa-solid fa-basket-shopping"></i>
+                            <p>購物車是空的<br>請點選左側商品加入</p>
+                        </div>
+                    </div>
+
+                    <!-- Cart Summary Footer -->
+                    <div class="cart-footer">
+                        <div class="summary-row">
+                            <span>小計</span>
+                            <span>${{ cartTotal }}</span>
+                        </div>
+                        <div class="summary-row total">
+                            <span>應收總額</span>
+                            <span class="total-amount">${{ cartTotal }}</span>
+                        </div>
+                        <button class="checkout-btn" :disabled="cart.length === 0" @click="openCheckout">
+                            <i class="fa-solid fa-cash-register"></i> 確認結帳
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 2: ACTIVE ORDERS (現場訂單) -->
+            <div v-if="activeTab === 'active-orders'" class="page-container">
+                <div class="orders-page">
+                    <div class="orders-filter-row">
+                        <p class="form-label">待處理現場訂單：{{ activeOrders.length }} 筆</p>
+                        <button class="theme-toggle-btn" @click="fetchActiveOrders">
+                            <i class="fa-solid fa-rotate"></i> 重新整理
+                        </button>
+                    </div>
+
+                    <div class="orders-grid">
+                        <div v-if="activeOrders.length > 0" v-for="order in activeOrders" :key="order.id" class="order-card">
+                            <div class="order-card-header">
+                                <div>
+                                    <div class="order-id-code">{{ order.order_no }}</div>
+                                    <div class="order-time">{{ order.created_at }}</div>
+                                </div>
+                                <span class="order-status-badge status-pending">待處理</span>
+                            </div>
+                            
+                            <!-- Items List -->
+                            <div class="order-card-items">
+                                <div v-for="item in order.items" :key="item.id" class="order-card-item">
+                                    <div class="order-item-qty-name">
+                                        <span class="order-item-qty">{{ item.quantity }}x</span>
+                                        <span class="order-item-name">{{ item.product_name }}</span>
+                                    </div>
+                                    <span class="order-item-sub">${{ item.subtotal }}</span>
+                                </div>
+                            </div>
+
+                            <div class="order-card-summary">
+                                <span class="order-summary-lbl">付款方式: 現金付款</span>
+                                <span class="order-summary-val">${{ order.total_price }}</span>
+                            </div>
+
+                            <div class="order-card-actions">
+                                <button class="order-action-btn complete" @click="updateOrderStatus(order.id, 'completed')">
+                                    <i class="fa-solid fa-check"></i> 完成訂單
+                                </button>
+                                <button class="order-action-btn cancel" @click="updateOrderStatus(order.id, 'cancelled')">
+                                    <i class="fa-solid fa-xmark"></i> 取消訂單
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Empty active orders -->
+                        <div v-else class="order-empty-state">
+                            <i class="fa-solid fa-circle-check"></i>
+                            <p>目前沒有待處理的現場訂單！</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 3: PAST HISTORY (歷史紀錄) -->
+            <div v-if="activeTab === 'history'" class="page-container">
+                <div class="orders-page">
+                    <div class="orders-filter-row">
+                        <!-- Filters (All, Completed, Cancelled) -->
+                        <div class="orders-tabs">
+                            <button class="order-tab" :class="{ active: historyFilter === 'all' }" @click="historyFilter = 'all'">全部紀錄</button>
+                            <button class="order-tab" :class="{ active: historyFilter === 'completed' }" @click="historyFilter = 'completed'">已完成</button>
+                            <button class="order-tab" :class="{ active: historyFilter === 'cancelled' }" @click="historyFilter = 'cancelled'">已取消</button>
+                        </div>
+                        <button class="theme-toggle-btn" @click="fetchPastOrders">
+                            <i class="fa-solid fa-rotate"></i> 重新整理
+                        </button>
+                    </div>
+
+                    <div class="orders-grid">
+                        <div v-if="filteredPastOrders.length > 0" v-for="order in filteredPastOrders" :key="order.id" class="order-card">
+                            <div class="order-card-header">
+                                <div>
+                                    <div class="order-id-code">{{ order.order_no }}</div>
+                                    <div class="order-time">{{ order.created_at }}</div>
+                                </div>
+                                <span :class="['order-status-badge', order.status === 'completed' ? 'status-completed' : 'status-cancelled']">
+                                    {{ order.status === 'completed' ? '已完成' : '已取消' }}
+                                </span>
+                            </div>
+                            
+                            <!-- Items List -->
+                            <div class="order-card-items">
+                                <div v-for="item in order.items" :key="item.id" class="order-card-item">
+                                    <div class="order-item-qty-name">
+                                        <span class="order-item-qty">{{ item.quantity }}x</span>
+                                        <span class="order-item-name">{{ item.product_name }}</span>
+                                    </div>
+                                    <span class="order-item-sub">${{ item.subtotal }}</span>
+                                </div>
+                            </div>
+
+                            <div class="order-card-summary" style="border-bottom: none; padding-bottom: 20px;">
+                                <span class="order-summary-lbl">付款方式: 現金付款</span>
+                                <span class="order-summary-val">${{ order.total_price }}</span>
+                            </div>
+                        </div>
+
+                        <!-- Empty past orders -->
+                        <div v-else class="order-empty-state">
+                            <i class="fa-solid fa-box-open"></i>
+                            <p>沒有找到相關的歷史訂單紀錄。</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: PRODUCT MANAGEMENT (商品管理) -->
+            <div v-if="activeTab === 'admin'" class="page-container">
+                <div class="admin-grid">
+                    <!-- Left Form: Add / Edit Product -->
+                    <div class="admin-form-panel">
+                        <h2 class="panel-sub-title">
+                            {{ isEditing ? '修改商品資訊' : '上架新商品' }}
+                        </h2>
+                        
+                        <!-- Name input -->
+                        <div class="form-group">
+                            <label class="form-label">商品名稱 *</label>
+                            <input v-model="productForm.name" type="text" class="form-input" placeholder="輸入商品名稱，例如：勁辣雞腿堡">
+                        </div>
+
+                        <!-- Category select -->
+                        <div class="form-group">
+                            <label class="form-label">商品分類 *</label>
+                            <select v-model="productForm.category" class="form-select">
+                                <option value="burger">漢堡</option>
+                                <option value="sandwich">三明治</option>
+                                <option value="snack">點心</option>
+                                <option value="drink">飲品</option>
+                            </select>
+                        </div>
+
+                        <!-- Price input -->
+                        <div class="form-group">
+                            <label class="form-label">單價 (TWD) *</label>
+                            <input v-model.number="productForm.price" type="number" min="0" class="form-input" placeholder="輸入售價">
+                        </div>
+
+                        <!-- Shelf Status (switch) -->
+                        <div class="form-group status-toggle-wrapper">
+                            <span class="form-label">上架狀態</span>
+                            <label class="switch">
+                                <input type="checkbox" v-model="productForm.status" :true-value="1" :false-value="0">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+
+                        <!-- Image Upload Drag/Drop zone -->
+                        <div class="form-group">
+                            <label class="form-label">商品圖片</label>
+                            <div v-if="!imagePreview" class="upload-dropzone" @click="$refs.fileInput.click()">
+                                <i class="fa-solid fa-cloud-arrow-up"></i>
+                                <span>點選或拖曳上傳圖片</span>
+                                <span style="font-size: 11px;">(格式限定 JPG/PNG/WEBP/GIF，最大 5MB)</span>
+                            </div>
+                            <!-- Live Preview Area -->
+                            <div v-else class="upload-preview-container">
+                                <img :src="imagePreview" alt="Upload preview" class="upload-preview">
+                                <button type="button" class="remove-upload-btn" @click="removeUploadedImage">
+                                    <i class="fa-solid fa-xmark"></i>
+                                </button>
+                            </div>
+                            <input type="file" ref="fileInput" accept="image/*" style="display: none;" @change="triggerImageUpload">
+                        </div>
+
+                        <!-- Form Action Buttons -->
+                        <div class="form-actions">
+                            <button class="admin-btn save" @click="saveProduct">
+                                <i class="fa-solid fa-save"></i> 確定{{ isEditing ? '儲存修改' : '商品上架' }}
+                            </button>
+                            <button class="admin-btn cancel" @click="resetProductForm">
+                                取消
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Right Table: All Products Admin List -->
+                    <div class="admin-list-panel">
+                        <div class="admin-table-container">
+                            <table class="admin-table">
+                                <thead>
+                                    <tr>
+                                        <th>商品資訊</th>
+                                        <th>分類</th>
+                                        <th>售價</th>
+                                        <th>上架狀態</th>
+                                        <th>操作</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    <tr v-for="product in products" :key="product.id">
+                                        <td>
+                                            <div class="table-product-cell">
+                                                <img :src="product.image_url || 'assets/coffee.png'" :alt="product.name" class="table-product-img" onerror="this.src='assets/coffee.png'">
+                                                <div class="table-product-info">
+                                                    <span class="table-product-name">{{ product.name }}</span>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td>
+                                            <span :class="['category-badge', 'badge-' + product.category]" style="position: static; box-shadow: none;">
+                                                {{ getCategoryName(product.category) }}
+                                            </span>
+                                        </td>
+                                        <td style="font-weight: 700;">${{ product.price }}</td>
+                                        <td>
+                                            <label class="switch">
+                                                <input type="checkbox" :checked="product.status === 1" @change="toggleProductStatus(product)">
+                                                <span class="slider"></span>
+                                            </label>
+                                        </td>
+                                        <td>
+                                            <div class="table-actions">
+                                                <button class="table-btn edit" title="編輯商品" @click="editProduct(product)">
+                                                    <i class="fa-solid fa-pen-to-square"></i>
+                                                </button>
+                                                <button class="table-btn delete" title="刪除商品" @click="deleteProduct(product)">
+                                                    <i class="fa-solid fa-trash"></i>
+                                                </button>
+                                            </div>
+                                        </td>
+                                    </tr>
+                                    <tr v-if="products.length === 0">
+                                        <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 40px;">
+                                            沒有商品資料
+                                        </td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </main>
+
+        <!-- CHECKOUT CALCULATOR MODAL (確認結帳) -->
+        <div v-if="showCheckoutModal" class="modal-overlay" @click.self="closeCheckout">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <span class="modal-title">收銀台結帳</span>
+                    <button class="close-modal-btn" @click="closeCheckout">&times;</button>
+                </div>
+                
+                <div class="modal-body">
+                    <!-- Total Price -->
+                    <div class="total-price-display">
+                        <div class="price-lbl">應收總額</div>
+                        <div class="price-val">${{ cartTotal }}</div>
+                    </div>
+
+                    <!-- Payment Method Picker -->
+                    <div class="payment-method-select">
+                        <label class="form-label">付款方式</label>
+                        <div class="payment-methods-grid">
+                            <div class="pay-method-card active">
+                                <i class="fa-solid fa-money-bill-wave"></i>
+                                <span>現金付款</span>
+                            </div>
+                            <div class="pay-method-card disabled" title="尚未開放此付款方式">
+                                <i class="fa-solid fa-mobile-screen-button"></i>
+                                <span>行動支付</span>
+                                <span class="disabled-tag">敬請期待</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cash Input Area -->
+                    <div class="cash-input-group">
+                        <label class="form-label">顧客實收現金</label>
+                        
+                        <!-- Quick Presets -->
+                        <div class="preset-cash-row">
+                            <button class="preset-btn" @click="selectPresetCash('exact')">應收金額</button>
+                            <button class="preset-btn" @click="selectPresetCash(100)">$100</button>
+                            <button class="preset-btn" @click="selectPresetCash(500)">$500</button>
+                            <button class="preset-btn" @click="selectPresetCash(1000)">$1000</button>
+                        </div>
+
+                        <!-- Manual Input -->
+                        <div class="cash-received-row">
+                            <span style="font-size: 18px; font-weight: 600;">$</span>
+                            <input v-model.number="cashReceived" type="number" min="0" class="cash-received-input" placeholder="請輸入實收金額" ref="cashInput">
+                        </div>
+
+                        <!-- Change calculation -->
+                        <div class="change-result-row">
+                            <span class="change-lbl">應找零錢</span>
+                            <span :class="['change-val', changeToReturn < 0 ? 'error' : '']">
+                                <span v-if="changeToReturn < 0">金額不足 (還差 ${{ Math.abs(changeToReturn) }})</span>
+                                <span v-else>${{ changeToReturn }}</span>
+                            </span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="modal-btn confirm" :disabled="!isCheckoutValid" @click="submitCheckout">
+                        確認送單 (列印)
+                    </button>
+                    <button class="modal-btn cancel" @click="closeCheckout">
+                        取消
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- RECEIPT MODAL (模擬明細收據) -->
+        <div v-if="showReceiptModal" class="modal-overlay" @click.self="closeReceipt">
+            <div class="modal-content" style="width: 380px;">
+                <div class="modal-header" style="border-bottom: none;">
+                    <span class="modal-title">點餐明細已送出</span>
+                    <button class="close-modal-btn" @click="closeReceipt">&times;</button>
+                </div>
+
+                <div class="modal-body" style="padding-top: 0;">
+                    <div v-if="checkoutOrder" class="receipt-container">
+                        <div class="receipt-header">
+                            <div class="receipt-shop-name">晨之美早午餐</div>
+                            <div class="receipt-meta">
+                                <span>單號：{{ checkoutOrder.order_no }}</span>
+                                <span>時間：{{ checkoutOrder.created_at }}</span>
+                                <span>收銀：櫃檯收銀員</span>
+                            </div>
+                        </div>
+
+                        <div class="receipt-items-list">
+                            <div v-for="item in checkoutOrder.items" :key="item.id" class="receipt-item-row">
+                                <span class="receipt-item-main">{{ item.product_name }} x{{ item.quantity }}</span>
+                                <span class="receipt-item-sub">${{ item.subtotal }}</span>
+                            </div>
+                        </div>
+
+                        <div class="receipt-summary">
+                            <div class="receipt-sum-row bold">
+                                <span>總計 (TWD)</span>
+                                <span>${{ checkoutOrder.total_price }}</span>
+                            </div>
+                            <div class="receipt-sum-row">
+                                <span>實收現金</span>
+                                <span>${{ checkoutOrder.cash_received }}</span>
+                            </div>
+                            <div class="receipt-sum-row">
+                                <span>應找零錢</span>
+                                <span>${{ checkoutOrder.change_returned }}</span>
+                            </div>
+                        </div>
+
+                        <div class="receipt-footer">
+                            <p>謝謝惠顧，餐點製作中！</p>
+                            <p style="font-size: 10px; margin-top: 4px;">本明細僅供現場取餐核對</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="modal-footer" style="border-top: none;">
+                    <button class="modal-btn confirm" @click="closeReceipt">關閉明細</button>
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- Vue 3 App Implementation -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
